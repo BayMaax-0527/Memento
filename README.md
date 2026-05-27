@@ -11,6 +11,10 @@
 
 ---
 
+> **🇨🇳 中文版** | [🇬🇧 English](./README.en.md)
+
+---
+
 ## 目录
 
 - [为什么需要 Memento？](#为什么需要-memento)
