@@ -15,7 +15,7 @@
 
 ```bash
 # 1. 克隆
-git clone https://github.com/yourusername/Memento.git
+git clone https://github.com/BayMaax-0527/Memento.git
 cd Memento
 
 # 2. 安装依赖
@@ -24,13 +24,30 @@ pip install -r requirements.txt
 # 3. 运行配置向导
 python3 setup.py
 
-# 4. 注入记忆（需要先准备好对话 JSON 或直接运行）
+# 4. 注入记忆（准备好对话文件或直接运行）
 cd Engine
 python3 hooks/remember.py --source session
 
 # 5. 检索
 python3 src/retriever.py --query "你想搜的"
 ```
+
+### 如果你是 Hermes 用户
+
+Memento 最初是为 [Hermes Agent](https://hermesagent.org.cn) 开发的。安装完成后，再安装配套技能即可用自然语言调用：
+
+```bash
+# 安装技能文件
+cp -r integrations/hermes/skills/* ~/.hermes/skills/
+
+# 启动新会话后，直接说：
+#   "注入记忆"   → 压缩当前会话 → 注入
+#   "查 XXX"     → 检索记忆库
+#   "查知识库 XXX" → 检索知识库
+#   "查决策"     → 查看已记录的决策
+```
+
+非 Hermes 用户按上面的命令说明手动执行即可。
 
 ## 架构
 
@@ -42,7 +59,8 @@ Memento/
 ├── Memory/        # 全局记忆库（L0 索引 + FTS5 + 向量 + 决策）
 ├── Knowledge/     # 知识库（文档专用）
 ├── setup.py       # 配置向导
-└── ReadMe/        # 文档
+├── DESIGN.md      # 设计文档
+└── USAGE.md       # 详细使用说明
 ```
 
 ### 工作流程
@@ -78,10 +96,6 @@ Memento/
 | LM Studio | 本地主模型 + embedding | localhost:1234 |
 | DeepSeek | 云 API 压缩 | `DEEPSEEK_API_KEY` |
 | OpenAI 兼容 | 任意替代 | `base_url` + `api_key` |
-
-## 项目状态
-
-自用项目，但欢迎 Issue 和 PR。详见 [CHANGELOG](CHANGELOG.md)。
 
 ## License
 
