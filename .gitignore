@@ -1,0 +1,24 @@
+.DS_Store
+__pycache__/
+*.pyc
+.env
+profiles/
+Engine/logs/
+Memory/abstracts.db
+Knowledge/abstracts.db
+Memory/config.yaml
+
+# 生成的数据目录
+Memory/categories/
+Memory/overviews/
+Memory/storage/
+Knowledge/categories/
+Knowledge/overviews/
+Knowledge/storage/
+.directory
+
+# 打包
+*.egg-info/
+dist/
+*.tar.gz
+*.zip

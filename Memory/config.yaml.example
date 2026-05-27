@@ -1,0 +1,26 @@
+# Memento 配置示例
+# 复制为 config.yaml 并按需修改
+models:
+  main:
+    provider: lmstudio        # lmstudio / deepseek / openai
+    model: qwen3.6-35b-a3b-mlx   # 你的主模型名
+    base_url: http://localhost:1234/v1
+    api_key: ''
+  compress:
+    provider: deepseek        # 压缩模型，建议用云 API
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com/v1
+    api_key: '${DEEPSEEK_API_KEY}'  # 从 .env 读取
+  embed:
+    provider: lmstudio
+    model: qwen3-embedding-4b-mxfp8
+    base_url: http://localhost:1234/v1
+    dimension: 2560
+    api_key: ''
+paths:
+  global_vault: ../Memory
+  knowledge_base: ../Knowledge
+  logs_dir: logs
+  profile_vault_base: profiles    # 项目本地，或 ~/.hermes/profiles
+retrieval:
+  auto_inject_limit: 5
