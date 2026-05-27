@@ -18,7 +18,6 @@
 ## 目录
 
 - [为什么需要 Memento？](#为什么需要-memento)
-- [与其他方案对比](#与其他方案对比)
 - [快速开始](#快速开始)
 - [架构与设计](#架构与设计)
 - [使用指南](#使用指南)
@@ -34,32 +33,15 @@
 
 AI Agent 每轮对话都是全新开始——它不记得昨天的结论、上周的踩坑、上个月的架构决策。
 
-现有方案要么太重（Docker + PostgreSQL），要么太贵（SaaS 每轮计费），要么数据不在你手上。
-
 **Memento 的答案是：**
 
 ```
-你说"注入记忆" → DeepSeek 压缩对话 → 
-LM Studio 提取结构化摘要 → 
+你说"注入记忆" → 云 API 压缩对话 → 
+本地模型提取结构化摘要 → 
 写入本地 SQLite（FTS5 全文索引 + 语义向量 + 图谱关联）
 
-下次你问"查 XXX"就能找到。全部在你电脑上，零外部服务。
+下次你问"查 XXX"就能找到。全部在你电脑上。所有模型均可自由配置。
 ```
-
-## 与其他方案对比
-
-| 特性 | Memento | Mem0 | Zep | LangChain Memory |
-|------|---------|------|-----|-----------------|
-| 部署 | pip install + SQLite | Docker + 向量库 | Docker + Postgres | 框架内嵌 |
-| 离线运行 | ✅ 全本地 | ❌ 需 API | ❌ 需 Docker | ❌ 依赖框架 |
-| 依赖数 | 0（SQLite 内置） | 需外部向量库 | Postgres + pgvector | 多种 |
-| 去重机制 | ✅ 双层（内容+版本+二击保险） | ❌ | ❌ | ❌ |
-| 版本管理 | ✅ 二击保险（downgrade→supersede） | ❌ | ❌ | ❌ |
-| 知识库 | ✅ 独立，与记忆隔离 | ❌ | ❌ | ❌ |
-| 图谱推理 | ✅ 2 跳 BFS 传递闭包 | ❌ | ✅ Graph RAG | ❌ |
-| API 费用 | 零或几分/次 | 每轮计费 | 每轮计费 | 视 provider |
-| 存储层级 | L0（摘要）/ L1（结构化）/ L2（全文） | 单层 embedding | 单层 + graph | 单层 |
-| 手动/自动 | 手动触发（你说才写） | 自动 | 自动 | 自动 |
 
 ## 快速开始
 
@@ -67,8 +49,9 @@ LM Studio 提取结构化摘要 →
 
 - **Python 3.10+**
 - **SQLite 3**（Python 自带）
-- **DeepSeek API Key**（可选，用于压缩；不配置则纯本地运行）
-- **LM Studio**（可选，用于本地模型提取和向量化）
+- **模型后端**（以下任选其一，均可配置）：
+  - **LM Studio**（本地，推荐）
+  - **DeepSeek / OpenAI 兼容 API**（云端）
 
 ### 安装
 
@@ -83,14 +66,14 @@ pip install -r requirements.txt
 # 3. 运行配置向导（交互式）
 python3 setup.py
 
-# 或一键默认配置（LM Studio localhost:1234）
+# 或一键默认配置
 python3 setup.py --auto
 ```
 
 ### 首次运行
 
 ```bash
-# 1. 确保 LM Studio 已启动（localhost:1234）
+# 1. 确保模型后端已启动（默认 localhost:1234）
 
 # 2. 进入引擎目录
 cd Engine
@@ -162,7 +145,7 @@ Profile 专属库（如果使用 Hermes）：
 | | 压缩模型 | 提取模型 |
 |---|---------|---------|
 | 做什么 | 全量压缩（会话/文档） | 从压缩结果提取结构 |
-| 默认 | DeepSeek v4 Flash（API） | LM Studio 本地模型 |
+| 默认 | 云 API（可配） | 本地模型（可配） |
 | 上下文 | 128k | ~10k（只需处理 L2） |
 | 费用 | 按量计费 | 本地免费 |
 | 可替换 | 任意 OpenAI 兼容 API | 同左 |
@@ -172,9 +155,9 @@ Profile 专属库（如果使用 Hermes）：
 ```
 输入（对话 JSON / 文档 .md）
   │
-  ├─ ① DeepSeek 压缩 → L2
+  ├─ ① 压缩（可配置：云 API / 本地） → L2
   │
-  ├─ ② LM Studio 提取：
+  ├─ ② 本地模型提取：
   │   ├─ L0（3-5 条一句话摘要，双层去重）
   │   ├─ L1（结构化 Markdown）
   │   ├─ decisions（语义去重，slug 唯一）
@@ -189,7 +172,7 @@ Profile 专属库（如果使用 Hermes）：
 
 ### 结论版本化（二击保险）
 
-同 topic 内容重复注入时，不会被立即覆盖——这是系统的核心保险机制：
+同 topic 内容重复注入时不会被立即覆盖，这是系统的核心保险机制：
 
 ```
 第 1 次同 topic 注入（replaces / refines）
@@ -226,7 +209,7 @@ supplements / independent → 不触发覆盖，旧记录保留 active
 python3 src/retriever.py --query "XXX" --rerank
 ```
 
-取 top-N 结果 → LM Studio 按相关性重排 → 输出。
+取 top-N 结果 → LLM 按相关性重排 → 输出。所用模型可在配置中自由指定。
 
 ---
 
@@ -315,7 +298,7 @@ python3 hooks/remember.py
 
 ## 配置说明
 
-核心配置在 `Memory/config.yaml`，`engine/setup.py` 会自动生成。手动配置示例：
+核心配置在 `Memory/config.yaml`，`setup.py` 会自动生成。所有模型均可在此自由更换。
 
 ```yaml
 models:
@@ -325,7 +308,7 @@ models:
     base_url: http://localhost:1234/v1
     api_key: ''
   compress:
-    provider: deepseek         # 压缩模型，建议云 API
+    provider: deepseek         # 压缩模型，可换任意 OpenAI 兼容 API
     model: deepseek-v4-flash
     base_url: https://api.deepseek.com/v1
     api_key: '${DEEPSEEK_API_KEY}'   # 从 .env 读取
@@ -333,7 +316,7 @@ models:
     provider: lmstudio
     model: qwen3-embedding-4b-mxfp8
     dimension: 2560
-    # 也支持 OpenAI 兼容 API：
+    # 也支持其他后端：
     # provider: openai
     # model: text-embedding-3-small
     # dimension: 1536
@@ -350,7 +333,7 @@ DeepSeek API Key 配置方式（二选一）：
 
 ```bash
 # 方式 1：.env 文件（推荐）
-echo 'DEEPSEEK_API_KEY=sk-your-key' > .env
+echo 'DEEPSEEK_API_KEY=*** > .env
 
 # 方式 2：环境变量
 export DEEPSEEK_API_KEY=sk-your-key
@@ -363,7 +346,6 @@ export DEEPSEEK_API_KEY=sk-your-key
 如果你是 [Hermes Agent](https://hermesagent.org.cn) 用户，安装配套技能后可以直接说自然语言指令：
 
 ```bash
-# 安装技能文件
 cp -r integrations/hermes/skills/* ~/.hermes/skills/
 ```
 
@@ -387,11 +369,11 @@ cp -r integrations/hermes/skills/* ~/.hermes/skills/
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
-| "LM Studio 不可达" | LM Studio 未启动或 Server 未开启 | 打开 LM Studio → Developer → Start Server |
+| "模型不可达" | 后端未启动或端口不对 | 检查模型服务状态，确认配置中的 base_url |
 | 搜索结果为空 | 还没注入过，或关键词不匹配 | 先执行注入命令，或用 `--semantic` 语义搜索 |
-| 注入失败 | API key 未配置或模型未加载 | 检查 `.env` 和 LM Studio 状态 |
-| 语义搜索为 0 | embedding 模型未加载 | 确认 LM Studio 加载了 embedding 模型 |
-| 注入超时 | 模型推理太慢 | 确认使用 MoE 模型（如 35B 但仅 3B 激活），非全量模型 |
+| 注入失败 | API key 未配置或模型未加载 | 检查 `.env` 和后端状态 |
+| 语义搜索为 0 | embedding 模型未加载 | 确认后端加载了对应的 embedding 模型 |
+| 注入超时 | 模型推理太慢 | 确认使用 MoE 等轻量模型，非全量大型模型 |
 | 重复 L0 | `profile_vault_base` 配置错误 | 检查 config.yaml 中的路径配置 |
 
 ---

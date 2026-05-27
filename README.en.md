@@ -18,7 +18,6 @@
 ## Table of Contents
 
 - [Why Memento?](#why-memento)
-- [Comparison](#comparison)
 - [Quick Start](#quick-start)
 - [Architecture & Design](#architecture--design)
 - [Usage Guide](#usage-guide)
@@ -34,32 +33,15 @@
 
 Every AI agent conversation starts from scratch — it doesn't remember yesterday's decisions, last week's pitfalls, or last month's architecture choices.
 
-Existing solutions are either too heavy (Docker + PostgreSQL), too expensive (SaaS per-turn billing), or don't give you data ownership.
-
 **Memento's approach:**
 
 ```
-Say "inject memory" → DeepSeek compresses the conversation →
-Local LM Studio extracts structured summaries →
+Say "inject memory" → Cloud API compresses the conversation →
+Local model extracts structured summaries →
 Writes to local SQLite (FTS5 full-text index + semantic vectors + graph links)
 
-Next time you ask, just search. Everything runs locally. Zero external services.
+Next time you ask, just search. Everything runs locally. All models are freely configurable in `Memory/config.yaml`.
 ```
-
-## Comparison
-
-| Feature | Memento | Mem0 | Zep | LangChain Memory |
-|---------|---------|------|-----|-----------------|
-| Setup | pip install + SQLite | Docker + vector DB | Docker + Postgres | Framework embedded |
-| Offline | ✅ Fully local | ❌ API required | ❌ Docker required | ❌ Framework bound |
-| Dependencies | 0 (SQLite built-in) | External vector DB | Postgres + pgvector | Multiple |
-| Deduplication | ✅ Dual-layer (content + topic versioning + two-click insurance) | ❌ | ❌ | ❌ |
-| Versioning | ✅ Two-click insurance (downgrade → supersede) | ❌ | ❌ | ❌ |
-| Knowledge base | ✅ Independent, isolated from memory | ❌ | ❌ | ❌ |
-| Graph reasoning | ✅ 2-hop BFS transitive closure | ❌ | ✅ Graph RAG | ❌ |
-| API cost | Free or pennies per run | Per-turn billing | Per-turn billing | Varies by provider |
-| Storage tiers | L0 (abstract) / L1 (structured) / L2 (full text) | Single embedding layer | Single layer + graph | Single layer |
-| Trigger model | Manual (you say when to write) | Automatic | Automatic | Automatic |
 
 ## Quick Start
 
@@ -67,8 +49,9 @@ Next time you ask, just search. Everything runs locally. Zero external services.
 
 - **Python 3.10+**
 - **SQLite 3** (built into Python)
-- **DeepSeek API Key** (optional, for cloud compression)
-- **LM Studio** (optional, for local model extraction and embeddings)
+- **Model backend** (pick one, all configurable):
+  - **LM Studio** (local, recommended)
+  - **DeepSeek / OpenAI-compatible API** (cloud)
 
 ### Installation
 
@@ -83,14 +66,14 @@ pip install -r requirements.txt
 # 3. Run the setup wizard (interactive)
 python3 setup.py
 
-# Or one-command default (LM Studio localhost:1234)
+# Or one-command default config
 python3 setup.py --auto
 ```
 
 ### First Run
 
 ```bash
-# 1. Make sure LM Studio is running (localhost:1234)
+# 1. Make sure your model backend is running (default localhost:1234)
 
 # 2. Enter the engine directory
 cd Engine
@@ -162,7 +145,7 @@ Profile vault (if using Hermes):
 | | Compression Model | Extraction Model |
 |---|-----------------|-----------------|
 | Role | Full compression (sessions/docs) | Structure extraction from compressed output |
-| Default | DeepSeek v4 Flash (API) | LM Studio local model |
+| Default | Cloud API (configurable) | Local model (configurable) |
 | Context | 128k | ~10k (only processes L2) |
 | Cost | Pay-per-use | Free (local) |
 | Replaceable | Any OpenAI-compatible API | Same |
@@ -172,9 +155,9 @@ Profile vault (if using Hermes):
 ```
 Input (conversation JSON / document .md)
   │
-  ├─ ① DeepSeek compresses → L2
+  ├─ ① Compression (configurable: cloud API / local) → L2
   │
-  ├─ ② LM Studio extracts:
+  ├─ ② Local model extraction:
   │   ├─ L0 (3-5 one-line abstracts, dual-layer dedup)
   │   ├─ L1 (structured Markdown)
   │   ├─ decisions (semantic dedup, unique slug)
@@ -226,7 +209,7 @@ New A inserted → query memory_links: A→B (hop 1)
 python3 src/retriever.py --query "query" --rerank
 ```
 
-Takes top-N results → LM Studio re-sorts by relevance → outputs.
+Takes top-N results → LLM re-sorts by relevance → outputs. The model used is configurable.
 
 ---
 
@@ -315,7 +298,7 @@ python3 hooks/remember.py
 
 ## Configuration
 
-Core configuration is in `Memory/config.yaml`. The `setup.py` wizard generates it automatically.
+Core configuration is in `Memory/config.yaml`. The `setup.py` wizard generates it automatically. All models can be freely changed here.
 
 ```yaml
 models:
@@ -325,7 +308,7 @@ models:
     base_url: http://localhost:1234/v1
     api_key: ''
   compress:
-    provider: deepseek         # compression model, cloud API recommended
+    provider: deepseek         # compression model, any OpenAI-compatible API works
     model: deepseek-v4-flash
     base_url: https://api.deepseek.com/v1
     api_key: '${DEEPSEEK_API_KEY}'   # read from .env
@@ -333,7 +316,7 @@ models:
     provider: lmstudio
     model: qwen3-embedding-4b-mxfp8
     dimension: 2560
-    # Also supports OpenAI-compatible APIs:
+    # Also supports other backends:
     # provider: openai
     # model: text-embedding-3-small
     # dimension: 1536
@@ -386,11 +369,11 @@ Non-Hermes users can execute the commands from the Usage Guide section directly.
 
 | Problem | Cause | Solution |
 |---------|-------|----------|
-| "LM Studio unreachable" | LM Studio not running or server not started | Open LM Studio → Developer → Start Server |
+| "Model unreachable" | Backend not running or wrong port | Check model service; verify `base_url` in config.yaml |
 | Empty search results | Nothing injected yet, or keyword mismatch | Run injection first, or use `--semantic` search |
-| Injection fails | API key not configured or model not loaded | Check `.env` and LM Studio status |
-| Semantic search returns 0 | Embedding model not loaded | Make sure LM Studio has the embedding model loaded |
-| Injection timeout | Model too slow | Ensure you're using a MoE model (e.g. 35B with 3B active), not a dense model |
+| Injection fails | API key not configured or model not loaded | Check `.env` and backend status |
+| Semantic search returns 0 | Embedding model not loaded | Make sure your backend has the embedding model loaded |
+| Injection timeout | Model too slow | Use a lightweight model (e.g. MoE), not a large dense model |
 | Duplicate L0 entries | Wrong `profile_vault_base` config | Check the path in config.yaml |
 
 ---
