@@ -127,14 +127,14 @@ Memento/
 │       └── auto.py          Status check & auto-injection
 ├── Memory/                  Global memory vault
 │   ├── config.yaml          Core configuration
-│   ├── abstracts.db         Database (L0 + FTS5 + vectors + decisions)
+│   ├── abstracts.db         [generated] Database (L0 + FTS5 + vectors + decisions)
 │   ├── categories/          Category index
 │   └── schema/              Table schemas
 ├── Knowledge/               Knowledge base
-│   ├── abstracts.db         L0 index
+│   ├── abstracts.db         [generated] L0 index
 │   ├── raw/                 Original documents
-│   ├── storage/docs/        L2 compressed docs
-│   └── overviews/docs/      L1 knowledge summaries
+│   ├── storage/docs/        [generated] L2 compressed docs
+│   └── overviews/docs/      [generated] L1 knowledge summaries
 └── integrations/
     └── hermes/              Hermes Agent integration
 ```
@@ -303,7 +303,7 @@ python3 src/retriever.py --health
 # Status statistics
 python3 hooks/auto.py status
 
-# Manual injection (current session)
+# Manual injection (current Hermes session; use --file for standalone mode)
 python3 hooks/remember.py
 
 # Auto-recall (takes effect in current session):
@@ -350,7 +350,7 @@ DeepSeek API Key setup (choose one):
 
 ```bash
 # Option 1: .env file (recommended)
-echo 'DEEPSEEK_API_KEY=*** > Memento/.env
+echo 'DEEPSEEK_API_KEY=*** > .env
 
 # Option 2: Environment variable
 export DEEPSEEK_API_KEY=sk-your...

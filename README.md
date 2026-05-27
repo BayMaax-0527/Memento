@@ -127,14 +127,14 @@ Memento/
 │       └── auto.py          状态查询 & 自动注入
 ├── Memory/                  全局记忆库
 │   ├── config.yaml          核心配置
-│   ├── abstracts.db         数据库（L0 + FTS5 + 向量 + 决策）
+│   ├── abstracts.db         [生成] 数据库（L0 + FTS5 + 向量 + 决策）
 │   ├── categories/          分类索引
 │   └── schema/              建表 SQL
 ├── Knowledge/               知识库
-│   ├── abstracts.db         L0 索引
+│   ├── abstracts.db         [生成] L0 索引
 │   ├── raw/                 原始文档
-│   ├── storage/docs/        L2 文档压缩
-│   └── overviews/docs/      L1 知识摘要
+│   ├── storage/docs/        [生成] L2 文档压缩
+│   └── overviews/docs/      [生成] L1 知识摘要
 └── integrations/
     └── hermes/              Hermes Agent 集成
 ```
@@ -303,7 +303,7 @@ python3 src/retriever.py --health
 # 查看状态统计
 python3 hooks/auto.py status
 
-# 手动注入（当前会话）
+# 手动注入（当前 Hermes 会话，无 Hermes 时需 --file 指定 JSON）
 python3 hooks/remember.py
 
 # 自动召回（在当前会话中生效）
@@ -350,7 +350,7 @@ DeepSeek API Key 配置方式（二选一）：
 
 ```bash
 # 方式 1：.env 文件（推荐）
-echo 'DEEPSEEK_API_KEY=sk-your-key' > Memento/.env
+echo 'DEEPSEEK_API_KEY=sk-your-key' > .env
 
 # 方式 2：环境变量
 export DEEPSEEK_API_KEY=sk-your-key
