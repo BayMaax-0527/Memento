@@ -11,7 +11,7 @@
 
 ---
 
-> **🇨🇳 中文版本见 [README.md](./README.md).**
+> **🇬🇧 English** | [🇨🇳 中文版](./README.md)
 
 ---
 
