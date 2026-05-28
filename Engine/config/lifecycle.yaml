@@ -1,0 +1,81 @@
+# v2 生命周期管理器 — 参数配置
+# 所有参数集中于此，不硬编码在 lifecycle.py 中
+
+# ── 语义去重 ──
+merge_threshold: 0.85          # ≥ 0.85 → 同内容合并（含 links 继承）
+conflict_threshold: 0.65       # 0.65~0.85 + 否定词 → supersede
+
+# ── 否定词白名单（辅助信号，非独立触发） ──
+negation_keywords:
+  - "不行"
+  - "推翻"
+  - "废弃"
+  - "不再"
+  - "改用"
+  - "替换"
+  - "别用"
+  - "不用了"
+  - "废除"
+  - "抛弃"
+  - "弃用"
+  - "停用"
+  - "作废"
+  - "换了"
+  - "推倒"
+  - "重新来"
+  - "supersede"
+  - "deprecate"
+  - "drop"
+  - "remove"
+  - "replace with"
+  - "replaced by"
+  - "abandon"
+  - "retire"
+  - "obsolete"
+
+# ── 超时衰减（天） ──
+decay_window_daily: 30         # 日常分析发现
+decay_window_arch: 180         # 架构/设计决策
+decay_window_rule: -1          # -1 = INF（永不衰减）
+
+# ── 时效标签判定 ──
+stale_freshness_threshold: 0.2 # freshness 低于此值触发 stale 候选
+stale_miss_count: 2            # 连续 N 次注入零命中确认 stale
+archive_freshness_zero_days: 60 # freshness=0 持续 60 天 + stale → archive
+
+# ── 引用计数 ──
+sliding_window_days: 30        # sliding_hit_count 的统计窗口（天）
+
+# ── 排序公式 ──
+sort_sliding_weight: 5         # sliding_hit_count 的排序权重（需同步到 retriever.py SQL）
+sort_history_weight: 1         # hit_count 的排序权重（需同步到 retriever.py SQL）
+sort_freshness_weight: 10      # freshness_score 的排序权重（需同步到 retriever.py SQL）
+
+# ── 链接清理 ──
+link_cleanup_days: 90
+
+# ── L0 分类关键词（不硬编码在代码中） ──
+classify_arch_keywords:
+  - "架构"
+  - "设计"
+  - "方案"
+  - "选型"
+  - "architecture"
+  - "design"
+  - "重构"
+  - "框架"
+  - "体系"
+  - "架构决策"
+
+classify_rule_keywords:
+  - "流程"
+  - "规范"
+  - "规则"
+  - "必须"
+  - "禁止"
+  - "policy"
+  - "rule"
+  - "standard"
+  - "标准"
+  - "制度"
+  - "约定"

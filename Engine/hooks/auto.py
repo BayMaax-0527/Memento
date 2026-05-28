@@ -109,7 +109,7 @@ def inject(source: str = "session", profile: str = "default"):
 
 def main():
     if len(sys.argv) < 2:
-        print("用法: auto.py status|inject [--source session|doc] [--profile name]")
+        print("用法: auto.py status|inject|recover|compact|list-archived [--source session|doc] [--profile name] [--id N] [--query ...]")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -129,6 +129,24 @@ def main():
         print(json.dumps(status(profile), ensure_ascii=False, indent=2))
     elif cmd == "inject":
         inject(source, profile)
+    elif cmd == "recover":
+        from lifecycle import recover_by_id, recover_by_query, list_archived
+        if "--id" in sys.argv:
+            idx = sys.argv.index("--id")
+            if idx + 1 < len(sys.argv):
+                print(recover_by_id(int(sys.argv[idx + 1]), profile))
+        elif "--query" in sys.argv:
+            idx = sys.argv.index("--query")
+            if idx + 1 < len(sys.argv):
+                print(recover_by_query(sys.argv[idx + 1], profile))
+        else:
+            print(list_archived(profile))
+    elif cmd == "compact":
+        from lifecycle import compact as lc_compact
+        print(lc_compact(profile))
+    elif cmd == "list-archived":
+        from lifecycle import list_archived
+        print(list_archived(profile))
     else:
         print("未知命令:", cmd)
 

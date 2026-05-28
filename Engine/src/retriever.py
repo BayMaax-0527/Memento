@@ -16,6 +16,7 @@ retriever.py — v2 记忆/知识检索引擎
 
 import json, logging, re, sqlite3, subprocess, sys
 from pathlib import Path
+import requests
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -138,8 +139,10 @@ def search(query: str, limit: int = 5, domain: str = None,
             "a.weight, a.version, a.status, a.created_at, a.storage_path "
             f"FROM abstracts a {join_clause} "
             f"WHERE a.id IN (SELECT rowid FROM abstracts_fts WHERE abstracts_fts MATCH ?) "
-            f"AND a.status != 'superseded' AND {where_sql} "
-            "ORDER BY a.weight DESC, a.created_at DESC "
+            f"AND a.status IN ('active', 'downgraded', 'stale') AND {where_sql} "
+            "ORDER BY "
+            "((COALESCE(a.sliding_hit_count,0) * 5) + (COALESCE(a.hit_count,0) * 1) + "
+            "(COALESCE(a.freshness_score,1.0) * 10 * CAST(a.weight AS REAL) / 100.0)) DESC "
             "LIMIT ?"
         )
         rows = db.execute(sql, [fts_query] + params + [limit]).fetchall()
@@ -158,7 +161,7 @@ def search(query: str, limit: int = 5, domain: str = None,
                     "SELECT a.id, a.abstract, a.source_type, a.category, a.tags, "
                     "a.weight, a.version, a.status, a.created_at, a.storage_path "
                     f"FROM abstracts a {join_clause} "
-                    f"WHERE (a.abstract LIKE ? OR a.tags LIKE ?) AND a.status != 'superseded' AND {where_sql} "
+                    f"WHERE (a.abstract LIKE ? OR a.tags LIKE ?) AND a.status IN ('active', 'downgraded', 'stale') AND {where_sql} "
                     "ORDER BY a.weight DESC, a.created_at DESC "
                     "LIMIT ?"
                 )
@@ -196,7 +199,7 @@ def semantic_search(query: str, limit: int = 5, domain: str = None,
         "a.abstract, a.storage_path "
         "FROM embeddings e "
         "JOIN abstracts a ON e.source_id = a.id AND e.source_type = a.source_type "
-        "WHERE a.status != 'superseded'").fetchall()
+        "WHERE a.status IN ('active', 'downgraded', 'stale')").fetchall()
     db.close()
 
     # cosine similarity（numpy 向量化）
@@ -346,7 +349,7 @@ def auto_inject(source_type: str = None, profile: str = "default") -> str:
 
         rows = db.execute(
             f"SELECT a.id, a.abstract, a.source_type, a.storage_path, a.created_at "
-            f"FROM abstracts a WHERE a.status != 'superseded' {type_filter} "
+            f"FROM abstracts a WHERE a.status IN ('active', 'downgraded', 'stale') {type_filter} "
             f"ORDER BY a.weight DESC, a.created_at DESC LIMIT ?",
             params + [CONFIG.get("retrieval", {}).get("auto_inject_limit", 5)],
         ).fetchall()
@@ -355,7 +358,7 @@ def auto_inject(source_type: str = None, profile: str = "default") -> str:
     if kb_db:
         rows2 = kb_db.execute(
             "SELECT a.id, a.abstract, a.source_type, a.storage_path, a.created_at "
-            "FROM abstracts a WHERE a.source_type='knowledge' AND a.status != 'superseded' "
+            "FROM abstracts a WHERE a.source_type='knowledge' AND a.status IN ('active', 'downgraded', 'stale') "
             "ORDER BY a.weight DESC, a.created_at DESC LIMIT ?",
             [CONFIG.get("retrieval", {}).get("auto_inject_limit", 3)],
         ).fetchall()

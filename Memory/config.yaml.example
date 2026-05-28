@@ -24,3 +24,5 @@ paths:
   profile_vault_base: profiles    # 项目本地，或 ~/.hermes/profiles
 retrieval:
   auto_inject_limit: 5
+
+# 生命周期参数详见 Engine/config/lifecycle.yaml

@@ -47,8 +47,7 @@ def profile_vault(profile: str = None) -> Path:
     if PROFILE_BASE is None:
         raise RuntimeError(
             "profile_vault_base 未配置，请在 Memory/config.yaml 中设置 paths.profile_vault_base\n"
-            "示例: profile_vault_base: profiles  （项目本地路径）\n"
-            "     或 profile_vault_base: ~/.hermes/profiles  （Hermes 用户）"
+            "示例: profile_vault_base: ~/.hermes/profiles"
         )
     p = profile or CURRENT_PROFILE
     return PROFILE_BASE / p / "memory-vault"
@@ -1131,6 +1130,20 @@ def main():
                 gdb.commit()
                 gdb.close()
                 logger.info("权重更新完成: session_count +1, weight adjusted")
+
+                # ── 生命周期管理（增量追加） ──
+                try:
+                    from lifecycle import run as lifecycle_run
+                    new_abstracts_dict = dict(zip(abstract_ids, l0))
+                    lifecycle_run(
+                        profile=profile,
+                        new_abstracts=new_abstracts_dict,
+                        new_global_ids=global_ids,
+                        referenced_ids=abstract_ids,
+                    )
+                    logger.info("生命周期管理完成")
+                except Exception as e:
+                    logger.warning("生命周期管理跳过（非致命）: %s", e)
             except Exception as e:
                 logger.error("全局库同步失败（专属库已写入）: %s", e, exc_info=True)
                 print(f"  ⚠️  全局库同步失败，专属库已安全写入: {e}", file=sys.stderr)
