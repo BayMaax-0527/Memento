@@ -62,9 +62,18 @@ def get_db(global_db: bool = False, profile: str = "default", knowledge_db: bool
 
 
 def _build_fts_query(query: str) -> str:
-    """将用户查询转为 FTS5 MATCH 表达式。"""
+    """将用户查询转为 FTS5 MATCH 表达式。
+    
+    中文 Token 自动加前缀通配符（*），解决 FTS5 unicode61 分词器
+    将连续中文字符串视为一个 Token 导致无法精确匹配的问题。
+    """
     tokens = re.findall(r'[\u4e00-\u9fff]+|[a-zA-Z0-9]+', query)
     tokens = [t for t in tokens if len(t) >= 2]
+    # 中文 Token 加前缀通配符：FTS5 支持 token 前缀匹配
+    tokens = [
+        t + "*" if re.match(r'^[\u4e00-\u9fff]', t) else t
+        for t in tokens
+    ]
     return " AND ".join(tokens[:5])
 
 
@@ -88,6 +97,11 @@ def search(query: str, limit: int = 5, domain: str = None,
     if domain == "knowledge":
         if not knowledge_db:
             knowledge_db = True  # auto-route to knowledge DB
+            # 路由改变后重新连接
+            db.close()
+            db = get_db(global_db=global_db, profile=profile, knowledge_db=knowledge_db)
+            if db is None:
+                return []
         join_clause = "LEFT JOIN knowledge_meta km ON a.id = km.abstract_id"
         # 结构化过滤
         where_clauses = ["a.source_type = 'knowledge'"]
