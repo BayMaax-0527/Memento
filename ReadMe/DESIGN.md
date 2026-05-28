@@ -272,7 +272,7 @@ ORDER BY (
 - `sliding_hit_count * 5`：近期命中权重最高
 - `hit_count * 1`：历史累积贡献较小
 - `freshness_score * 10 * (weight/100)`：时效性 × 静态权重
-- 排序权重在 `config/lifecycle.yaml` 中定义（`sort_sliding_weight`/`sort_history_weight`/`sort_freshness_weight`），变更后需同步更新 `retriever.py` 中的 SQL 硬编码值
+- 排序权重在 `config/lifecycle.yaml` 中定义（`sort_sliding_weight`/`sort_history_weight`/`sort_freshness_weight`），修改后重启生效，无需改代码
 
 ---
 
@@ -592,5 +592,5 @@ Memento/
 - Embedding 生成失败时跳过语义去重步骤，条目直接作为新条目
 - 语义去重作用于 profile 库，全局库通过同步映射更新
 - 知识库没有独立的生命周期管理（无 freshness_score / 无状态转移）
-- 排序公式的参数在 lifecycle.yaml 中配置，变更后需重启生效
+- 排序公式的参数在 `config/lifecycle.yaml` 中配置（`sort_sliding_weight`/`sort_history_weight`/`sort_freshness_weight`），修改后重启生效
 - SQLite 写锁串行：多个注入同时执行会排队（单用户场景无问题）

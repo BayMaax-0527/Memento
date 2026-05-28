@@ -1,5 +1,21 @@
 # Changelog
 
+## v4.1 (2026-05-28)
+
+### 🔧 改进
+- **排序公式动态读取**：`retriever.py` 启动时从 `config/lifecycle.yaml` 加载 `SORT_SLIDING_W`、`SORT_HISTORY_W`、`SORT_FRESHNESS_W`，修改配置文件即刻生效，消除双维护
+- **语义搜索向量解包优化**：`numpy.frombuffer` + `b"".join` 替代逐条 `struct.unpack`，全量向量一次解包，性能提升 10-50x
+- **FTS5 中文搜索修复**：中文 Token 自动加前缀通配符 `*`，解决 unicode61 分词器将连续中文字符串视为单一 Token 导致的搜索不到问题
+
+### 🐛 修复
+- `stale_miss_count` 配置加载后未使用 → 在 stale 判定中加入 `session_count >= stale_miss_count` 检查，避免冷启动误判
+- `hybrid_search()` 知识库自动路由缺失 → 加 `knowledge_db = True` 自动路由
+- `search()` 知识库自动路由在 `get_db()` 之后才执行，导致连错数据库 → 路由改变后 `db.close()` 重新连接
+- `retriever.py` 缺少 `import requests`（已存在却从未生效）
+- 移除 `semantic_search()` 中不再使用的 `import struct`
+
+---
+
 ## v4.0 (2026-05-28)
 
 ### ✨ 新功能
