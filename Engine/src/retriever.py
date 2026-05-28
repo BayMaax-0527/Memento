@@ -269,6 +269,9 @@ def hybrid_search(query: str, limit: int = 5, domain: str = None,
                   global_db: bool = False, profile: str = "default",
                   knowledge_db: bool = False, **filters) -> list[dict]:
     """FTS5 + 语义搜索混合。FTS5 结果为主，语义补充。"""
+    # 自动路由（与 search() 一致）
+    if domain == "knowledge" and not knowledge_db:
+        knowledge_db = True
     fts_results = search(query, limit, domain, global_db, profile, knowledge_db, **filters)
     sem_results = semantic_search(query, limit * 2, domain, global_db, profile, knowledge_db)
 
