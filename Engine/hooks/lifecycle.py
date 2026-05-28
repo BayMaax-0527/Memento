@@ -349,12 +349,13 @@ def step_c_label(profile_db_con, injection_count: int = 1):
     """
     rows = profile_db_con.execute(
         "SELECT id, status, freshness_score, hit_count, last_accessed_at, "
-        "sliding_hit_count "
+        "sliding_hit_count, session_count "
         "FROM abstracts WHERE source_type='memory' "
         "AND status IN ('active', 'downgraded', 'stale')"
     ).fetchall()
 
     stale_threshold = LC_CONFIG["stale_freshness_threshold"]
+    stale_miss = int(LC_CONFIG.get("stale_miss_count", 2))
 
     changelog = {"to_stale": 0, "to_archive": 0, "details": []}
 
@@ -363,10 +364,12 @@ def step_c_label(profile_db_con, injection_count: int = 1):
         freshness = r["freshness_score"]
         hit_count = r["hit_count"]
         sliding_hits = r["sliding_hit_count"] or 0
+        session_count = r["session_count"] or 0
 
         # active / downgraded → stale
+        # 条件：freshness 低于阈值 + 滑动窗口零命中 + 经历的会话数 > stale_miss_count
         if status in ("active", "downgraded"):
-            if freshness < stale_threshold and sliding_hits == 0:
+            if freshness < stale_threshold and sliding_hits == 0 and session_count >= stale_miss:
                 # 连续 N 次注入零命中 → stale
                 profile_db_con.execute(
                     "UPDATE abstracts SET status='stale' WHERE id=?",

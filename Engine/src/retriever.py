@@ -25,6 +25,18 @@ from client import call_llm, call_embedding, resolve_path
 CONFIG = yaml.safe_load((ROOT.parent / "Memory" / "config.yaml").read_text())
 LOG_DIR = Path(resolve_path(CONFIG["paths"]["logs_dir"]))
 
+# 加载排序权重（从 lifecycle.yaml 动态读取，消除双维护）
+_LC_PATH = ROOT / "config" / "lifecycle.yaml"
+if _LC_PATH.exists():
+    _LC_CFG = yaml.safe_load(_LC_PATH.read_text())
+    SORT_SLIDING_W = int(_LC_CFG.get("sort_sliding_weight", 5))
+    SORT_HISTORY_W = int(_LC_CFG.get("sort_history_weight", 1))
+    SORT_FRESHNESS_W = int(_LC_CFG.get("sort_freshness_weight", 10))
+else:
+    SORT_SLIDING_W = 5
+    SORT_HISTORY_W = 1
+    SORT_FRESHNESS_W = 10
+
 
 def setup_logging():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -155,8 +167,9 @@ def search(query: str, limit: int = 5, domain: str = None,
             f"WHERE a.id IN (SELECT rowid FROM abstracts_fts WHERE abstracts_fts MATCH ?) "
             f"AND a.status IN ('active', 'downgraded', 'stale') AND {where_sql} "
             "ORDER BY "
-            "((COALESCE(a.sliding_hit_count,0) * 5) + (COALESCE(a.hit_count,0) * 1) + "
-            "(COALESCE(a.freshness_score,1.0) * 10 * CAST(a.weight AS REAL) / 100.0)) DESC "
+            f"((COALESCE(a.sliding_hit_count,0) * {SORT_SLIDING_W}) + "
+            f"(COALESCE(a.hit_count,0) * {SORT_HISTORY_W}) + "
+            f"(COALESCE(a.freshness_score,1.0) * {SORT_FRESHNESS_W} * CAST(a.weight AS REAL) / 100.0)) DESC "
             "LIMIT ?"
         )
         rows = db.execute(sql, [fts_query] + params + [limit]).fetchall()
@@ -207,7 +220,6 @@ def semantic_search(query: str, limit: int = 5, domain: str = None,
         return []
 
     # 读取所有存储的向量
-    import struct
     stored = db.execute(
         "SELECT e.source_id, e.source_type, e.dimension, e.vector, "
         "a.abstract, a.storage_path "
@@ -216,22 +228,18 @@ def semantic_search(query: str, limit: int = 5, domain: str = None,
         "WHERE a.status IN ('active', 'downgraded', 'stale')").fetchall()
     db.close()
 
-    # cosine similarity（numpy 向量化）
+    # cosine similarity
     import numpy as np
     if not stored:
-        db.close()
         return []
     dim = stored[0]["dimension"]
     qarr = np.array(qvec, dtype=np.float32)
     qnorm = np.linalg.norm(qarr)
     if qnorm == 0:
-        db.close()
         return []
-    # 批量解包所有向量
-    sarr = np.array([
-        list(struct.unpack(f"{r['dimension']}f", r["vector"]))
-        for r in stored
-    ], dtype=np.float32)
+    # 全量向量一次解包（比逐条 struct.unpack 快 10-50x）
+    all_bytes = b"".join(r["vector"] for r in stored)
+    sarr = np.frombuffer(all_bytes, dtype=np.float32).reshape(len(stored), dim)
     snorms = np.linalg.norm(sarr, axis=1)
     scores = (sarr @ qarr) / (snorms * qnorm + 1e-10)
     top_n = min(len(scores), limit)
