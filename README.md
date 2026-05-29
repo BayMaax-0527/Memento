@@ -1,7 +1,7 @@
 <div align="center">
   <h1>Memento</h1>
   <p><b>轻量级 AI Agent 记忆持久化系统</b></p>
-  <p>把你的对话决策、踩坑经验、知识文档变成可检索的长期记忆。</p>
+  <p>零外部服务依赖 · 中文原生 · 三级存储 · 生命周期管理</p>
 
   [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
   [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
@@ -15,341 +15,123 @@
 
 ---
 
-## 目录
+## 一句话
 
-- [为什么需要 Memento？](#为什么需要-memento)
-- [快速开始](#快速开始)
-- [架构与设计](#架构与设计)
-- [使用指南](#使用指南)
-- [配置说明](#配置说明)
-- [Hermes 集成](#hermes-集成)
-- [故障排查](#故障排查)
-- [Schema](#schema)
-- [License](#license)
+你说"**注入记忆**"——对话被压缩、提取为结构化摘要、写入本地 SQLite。下次你说"**查 XXX**"就能找到。全部在你电脑上。
 
 ---
 
-## 为什么需要 Memento？
+## 凭什么不一样？
 
-AI Agent 每轮对话都是全新开始——它不记得昨天的结论、上周的踩坑、上个月的架构决策。
+| 你在别处找不到的 | Memento | 其他（Mem0 / Letta 等） |
+|-----------------|---------|------------------------|
+| **零外部服务依赖** | 纯 SQLite + 3 个 pip 包 | 需要向量数据库 / PostgreSQL / 独立服务器 |
+| **中文检索原生支持** | FTS5 中文通配 + LIKE 兜底 + 中文分类词库 | 依赖 embedding 模型，无中文优化 |
+| **三级存储** | L0 摘要 → L1 结构化 → L2 全文 | 单层 embedding |
+| **生命周期管理** | 语义去重 → 超时衰减 → 自动 stale/archive → 可恢复 | 无 |
+| **版本管理** | 同 topic 二击保险（先降级，再确认才覆盖） | 无 |
+| **图谱推理** | Tag 重叠 + 2 跳 BFS 传递闭包 | 无 |
+| **5 种检索方式** | FTS5 / LIKE / 语义 / 混合搜索 / LLM 重排序 | 通常只有语义搜索 |
+| **知识库独立管理** | 记忆 + 知识双源隔离，互不干扰 | 无独立知识库 |
 
-**Memento 的答案是：**
-
-```
-你说"注入记忆" → 云 API 压缩对话 → 
-本地模型提取结构化摘要 → 
-写入本地 SQLite（FTS5 全文索引 + 语义向量 + 图谱关联）
-
-下次你问"查 XXX"就能找到。全部在你电脑上。所有模型均可自由配置。
-```
+---
 
 ## 快速开始
 
 ### 环境要求
 
 - **Python 3.10+**
-- **SQLite 3**（Python 自带）
-- **模型后端**（以下任选其一，均可配置）：
-  - **LM Studio**（本地，推荐）
-  - **DeepSeek / OpenAI 兼容 API**（云端）
+- **模型后端**（任选其一，均可配置）：LM Studio（本地推荐） / DeepSeek / OpenAI 兼容 API
 
 ### 安装
 
 ```bash
-# 1. 克隆
 git clone https://github.com/BayMaax-0527/Memento.git
 cd Memento
-
-# 2. 安装依赖
 pip install -r requirements.txt
-
-# 3. 运行配置向导（交互式）
-python3 setup.py
-
-# 或一键默认配置
-python3 setup.py --auto
+python3 setup.py --auto          # 或 python3 setup.py（交互式）
 ```
 
-### 首次运行
+### 首次使用
 
 ```bash
-# 1. 确保模型后端已启动（默认 localhost:1234）
-
-# 2. 进入引擎目录
 cd Engine
+python3 src/retriever.py --health                      # 检查后端状态
+python3 hooks/remember.py --source session              # 注入当前会话
+python3 src/retriever.py --query "你想搜的"              # 检索
+```
 
-# 3. 健康检查
-python3 src/retriever.py --health
+### 日常常用命令
 
-# 4. 注入记忆（自动读取最新会话或通过 --file 指定 JSON）
-python3 hooks/remember.py --source session
+```bash
+# 注入
+python3 hooks/remember.py --source session                          # 注入记忆
+python3 hooks/remember_doc.py /path/to/doc.md                       # 注入知识文档
 
-# 5. 检索
-python3 src/retriever.py --query "你想搜的"
+# 检索
+python3 src/retriever.py --query "关键词"                            # 关键词搜索
+python3 src/retriever.py --query "语义搜索" --semantic               # 语义搜索
+python3 src/retriever.py --query "面霜" --domain knowledge --brand 珀莱雅  # 知识库结构化检索
+
+# 维护
+python3 hooks/auto.py status                                         # 查看统计
+python3 hooks/auto.py compact                                        # 深度归档 + 健康报告
+python3 hooks/auto.py recover --id N                                 # 恢复已归档条目
 ```
 
 ---
 
-## 架构与设计
-
-### 目录结构
+## 架构速览
 
 ```
-Memento/
-├── setup.py                 配置向导
-├── requirements.txt         Python 依赖
-├── Engine/                  引擎代码
-│   ├── src/
-│   │   ├── client.py        统一 LLM/Embedding 客户端
-│   │   └── retriever.py     检索引擎（FTS5 + 语义 + rerank）
-│   └── hooks/
-│       ├── remember.py      记忆注入主入口
-│       ├── remember_doc.py  知识注入快捷入口
-│       ├── recall.py        检索入口
-│       ├── inject.py        注入输出格式化
-│       └── auto.py          状态查询 & 自动注入
-├── Memory/                  全局记忆库
-│   ├── config.yaml          核心配置
-│   ├── abstracts.db         [生成] 数据库（L0 + FTS5 + 向量 + 决策）
-│   ├── categories/          分类索引
-│   └── schema/              建表 SQL
-├── Knowledge/               知识库
-│   ├── abstracts.db         [生成] L0 索引
-│   ├── raw/                 原始文档
-│   ├── storage/docs/        [生成] L2 文档压缩
-│   └── overviews/docs/      [生成] L1 知识摘要
-└── integrations/
-    └── hermes/              Hermes Agent 集成
+你说"注入记忆"
+  │
+  ├─ ① DeepSeek 压缩 → L2 全文
+  ├─ ② LM Studio 提取 → L0 摘要 + L1 结构化 + decisions
+  ├─ ③ 写入 SQLite（FTS5 索引 + 2560 维向量）
+  ├─ ④ 图谱推理（tag 重叠 + 2 跳 BFS）
+  ├─ ⑤ 权重更新
+  └─ ⑥ 生命周期管理（语义去重 → 衰减 → 标签判定 → 引用计数）
 ```
 
-Profile 专属库（如果使用 Hermes）：
+### 三库分离
 
-```
-~/.hermes/profiles/<name>/memory-vault/
-├── abstracts.db          L0 索引
-├── storage/sessions/     L2 会话压缩
-└── overviews/sessions/   L1 记忆摘要
-```
-
-### 三级存储
-
-| 层级 | 存什么 | 存储方式 | 大小 |
-|------|--------|----------|------|
-| **L0** | 一句话摘要 | SQLite FTS5 全文索引 | ~20 tokens/条 |
-| **L1** | 结构化摘要（核心主题/决策/踩坑/待办/技术细节） | Markdown 文件 | ~200-250 tokens/篇 |
-| **L2** | 全量压缩对话或文档 | Markdown 文件 | ~440 tokens/会话 |
-| **decisions** | 全局唯一决策/踩坑记录 | SQLite decisions 表 | ~50 tokens 全量 |
+| 库 | 位置 | 存什么 |
+|---|------|--------|
+| **全局记忆库** | `Memory/abstracts.db` | 跨 session 的通用决策和结论 |
+| **知识库** | `Knowledge/abstracts.db` | 文档/报告/制度的结构化知识 |
+| **Profile 专属库** | `profiles/<name>/memory-vault/` | 当前对话的 L0+L1+L2 完整记录 |
 
 ### 双模型分工
 
 | | 压缩模型 | 提取模型 |
 |---|---------|---------|
-| 做什么 | 全量压缩（会话/文档） | 从压缩结果提取结构 |
-| 默认 | 云 API（可配） | 本地模型（可配） |
-| 上下文 | 128k | ~10k（只需处理 L2） |
-| 费用 | 按量计费 | 本地免费 |
-| 可替换 | 任意 OpenAI 兼容 API | 同左 |
+| 做什么 | 全量压缩会话/文档 | 从压缩结果提取结构化内容 |
+| 典型配置 | DeepSeek（云 API，128k 上下文） | LM Studio 本地模型（免费） |
+| 均可自由更换 | ✅ 任意 OpenAI 兼容 API | ✅ 同左 |
 
-### 注入流程
+### 生命周期管理
 
 ```
-输入（对话 JSON / 文档 .md）
-  │
-  ├─ ① 压缩（可配置：云 API / 本地） → L2
-  │
-  ├─ ② 本地模型提取：
-  │   ├─ L0（3-5 条一句话摘要，双层去重）
-  │   ├─ L1（结构化 Markdown）
-  │   ├─ decisions（语义去重，slug 唯一）
-  │   └── memory_meta / knowledge_meta（结构化字段）
-  │
-  └─ ③ 写入：
-      ├─ L0 → abstracts.db（FTS5 索引 + 2560 维向量）
-      ├─ L1 → overviews/
-      ├─ L2 → storage/
-      └─ memory_links → tag 重叠 + 传递闭包（2 跳）
+创建 → active
+         ├── 二击保险(第一次) → downgraded（检索可见）
+         │     └── 二击保险(第二次) → superseded（冻结，默认隐藏）
+         ├── 超时衰减 + 零引用 → stale（排序靠后）
+         │     └── freshness=0 + 零命中 → archived（可恢复）
+         └── 语义冲突 → 自动合并或 supersede
 ```
 
-### 结论版本化（二击保险）
-
-同 topic 内容重复注入时不会被立即覆盖，这是系统的核心保险机制：
-
-```
-第 1 次同 topic 注入（replaces / refines）
-  → 旧记录标记 downgraded（保险期，检索时仍然可见）
-  → 新记录 version+1
-
-第 2 次同 topic 注入再次确认（replaces / refines）
-  → 旧记录标记 superseded（默认隐藏，--include-obsolete 可见）
-  → 新记录 version+2
-
-supplements / independent → 不触发覆盖，旧记录保留 active
-```
-
-| 关系 | 含义 | 旧知识处理 |
-|------|------|-----------|
-| `replaces` | 新替代旧 | 第一次 → downgraded，第二次 → superseded |
-| `refines` | 新细化/修正旧 | 同上二击保险 |
-| `supplements` | 补充旧知识 | 保留 active，两条共存 |
-| `independent` | 不同维度无关 | 保留 active，不关联 |
-
-### 传递闭包推理
-
-注入时自动执行 2 跳 BFS 图谱推理：
-
-```
-新注入 A → 查 memory_links: A→B（1 跳）
-         → 查 B→{C, D}（2 跳）
-         → 自动创建 A→C (inferred), A→D (inferred)
-```
-
-### 搜索结果重排序
-
-```bash
-python3 src/retriever.py --query "XXX" --rerank
-```
-
-取 top-N 结果 → LLM 按相关性重排 → 输出。所用模型可在配置中自由指定。
-
----
-
-## 使用指南
-
-### 注入记忆
-
-```bash
-cd Engine
-
-# 注入当前 Hermes 会话
-python3 hooks/remember.py --source session
-
-# 从指定 JSON 文件注入（通用模式，不依赖 Hermes）
-python3 hooks/remember.py --source session --file /path/to/conversation.json
-
-# 指定 session 目录
-python3 hooks/remember.py --session-dir /path/to/sessions/
-
-# 指定 profile
-python3 hooks/remember.py --profile work
-
-# 手动指定 slug
-python3 hooks/remember.py --slug my-custom-slug
-```
-
-### 注入知识
-
-```bash
-# 注入知识文档（Markdown 格式）
-python3 hooks/remember_doc.py /path/to/document.md
-
-# 带自定义 slug
-python3 hooks/remember_doc.py /path/to/document.md --slug my-knowledge
-```
-
-### 检索
-
-```bash
-# 关键词搜索（默认 FTS5，全局库）
-python3 src/retriever.py --query "模型选型"
-
-# 指定检索数量
-python3 src/retriever.py --query "方案" --limit 3
-
-# 仅搜知识库
-python3 src/retriever.py --query "劳动法" --domain knowledge
-
-# 语义搜索（不需要关键词匹配）
-python3 src/retriever.py --query "性能对比" --domain knowledge --semantic
-
-# 混合搜索（FTS5 优先 + 语义补充）
-python3 src/retriever.py --query "GPU" --global-db --hybrid
-
-# LLM 重排序
-python3 src/retriever.py --query "模型选型" --global-db --rerank
-
-# 查看版本链（含已 superseded 的旧版本）
-python3 src/retriever.py --query "模型" --global-db --include-obsolete
-
-# 结构化过滤（知识库专用）
-python3 src/retriever.py --query "面霜" --domain knowledge --brand 珀莱雅 --l2 面霜
-
-# 查看全部决策
-python3 src/retriever.py --decisions
-```
-
-### 系统维护
-
-```bash
-# 健康检查
-python3 src/retriever.py --health
-
-# 查看状态统计
-python3 hooks/auto.py status
-
-# 手动注入（当前 Hermes 会话，无 Hermes 时需 --file 指定 JSON）
-python3 hooks/remember.py
-
-# 自动召回（在当前会话中生效）
-# 你说"开启自动召回" → 每轮首步执行 auto_inject()
-# 你说"关闭自动召回" → 停止
-```
-
----
-
-## 配置说明
-
-核心配置在 `Memory/config.yaml`，`setup.py` 会自动生成。所有模型均可在此自由更换。
-
-```yaml
-models:
-  main:
-    provider: lmstudio        # lmstudio / deepseek / openai
-    model: qwen3.6-35b-a3b-mlx
-    base_url: http://localhost:1234/v1
-    api_key: ''
-  compress:
-    provider: deepseek         # 压缩模型，可换任意 OpenAI 兼容 API
-    model: deepseek-v4-flash
-    base_url: https://api.deepseek.com/v1
-    api_key: '${DEEPSEEK_API_KEY}'   # 从 .env 读取
-  embed:
-    provider: lmstudio
-    model: qwen3-embedding-4b-mxfp8
-    dimension: 2560
-    # 也支持其他后端：
-    # provider: openai
-    # model: text-embedding-3-small
-    # dimension: 1536
-paths:
-  global_vault: ../Memory
-  knowledge_base: ../Knowledge
-  logs_dir: logs
-  profile_vault_base: profiles    # 或 ~/.hermes/profiles（Hermes 用户）
-retrieval:
-  auto_inject_limit: 5
-```
-
-DeepSeek API Key 配置方式（二选一）：
-
-```bash
-# 方式 1：.env 文件（推荐）
-echo 'DEEPSEEK_API_KEY=*** > .env
-
-# 方式 2：环境变量
-export DEEPSEEK_API_KEY=sk-your-key
-```
+所有参数集中在 `Engine/config/lifecycle.yaml`，不硬编码。详见 [DESIGN.md](ReadMe/DESIGN.md)。
 
 ---
 
 ## Hermes 集成
 
-如果你是 [Hermes Agent](https://hermesagent.org.cn) 用户，安装配套技能后可以直接说自然语言指令：
+如果你是 [Hermes Agent](https://hermesagent.org.cn) 用户，安装技能后直接说自然语言：
 
 ```bash
 cp -r integrations/hermes/skills/* ~/.hermes/skills/
 ```
-
-新会话中支持以下指令：
 
 | 你说 | 效果 |
 |------|------|
@@ -357,91 +139,32 @@ cp -r integrations/hermes/skills/* ~/.hermes/skills/
 | "注入知识" | 处理文档 → 写入知识库 |
 | "查 XXX" | 检索记忆库 |
 | "查知识库 XXX" | 检索知识库 |
-| "查决策" | 列出最近决策 |
-| "语义查 XXX" | 向量语义搜索 |
-| "开启/关闭自动召回" | 开关自动检索 |
+| "压缩" | 深度归档 + 健康报告 |
+| "恢复 --id N" | 恢复已归档条目 |
 
-非 Hermes 用户按上面「使用指南」中的命令手动执行即可。
-
----
-
-## 故障排查
-
-| 问题 | 原因 | 解决 |
-|------|------|------|
-| "模型不可达" | 后端未启动或端口不对 | 检查模型服务状态，确认配置中的 base_url |
-| 搜索结果为空 | 还没注入过，或关键词不匹配 | 先执行注入命令，或用 `--semantic` 语义搜索 |
-| 注入失败 | API key 未配置或模型未加载 | 检查 `.env` 和后端状态 |
-| 语义搜索为 0 | embedding 模型未加载 | 确认后端加载了对应的 embedding 模型 |
-| 注入超时 | 模型推理太慢 | 确认使用 MoE 等轻量模型，非全量大型模型 |
-| 重复 L0 | `profile_vault_base` 配置错误 | 检查 config.yaml 中的路径配置 |
+非 Hermes 用户直接运行上方「日常常用命令」中的脚本即可。
 
 ---
 
-## Schema
+## 配置
 
-```sql
--- 主表（所有域共用，FTS5 索引全文）
-CREATE TABLE abstracts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_type TEXT NOT NULL,      -- 'memory' / 'knowledge'
-    abstract TEXT NOT NULL,          -- L0 摘要
-    category TEXT,
-    tags TEXT,
-    weight INTEGER DEFAULT 100,
-    version INTEGER DEFAULT 1,      -- topic 版本号
-    status TEXT DEFAULT 'active',    -- active / downgraded / superseded
-    storage_path TEXT,               -- 指向 L1/L2 文件
-    created_at TEXT DEFAULT (datetime('now','localtime'))
-);
+核心配置在 `Memory/config.yaml`，`setup.py` 自动生成：
 
--- 记忆域扩展
-CREATE TABLE memory_meta (
-    abstract_id INTEGER PRIMARY KEY,
-    profile TEXT,
-    project TEXT,
-    project_type TEXT,
-    decision_type TEXT,              -- 决策 / 踩坑 / 经验 / 待办
-    importance TEXT,                 -- high / medium / low
-    topic TEXT DEFAULT ''            -- 版本覆盖主题键
-);
-
--- 知识域扩展
-CREATE TABLE knowledge_meta (
-    abstract_id INTEGER PRIMARY KEY,
-    brand_name TEXT,
-    brand_tier TEXT,
-    category_l1 TEXT,
-    category_l2 TEXT,
-    target_audience TEXT,
-    audience_tag TEXT
-);
-
--- 记忆关联表（图谱推理）
-CREATE TABLE memory_links (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_id INTEGER NOT NULL,
-    target_abstract_id INTEGER NOT NULL,
-    relation TEXT DEFAULT 'related', -- related / superseded / tag_overlap / inferred
-    created_at TEXT DEFAULT (datetime('now','localtime'))
-);
-
--- 全局决策表
-CREATE TABLE decisions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slug TEXT UNIQUE,
-    content TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now','localtime'))
-);
-
--- FTS5 全文索引（触发器自动同步）
-CREATE VIRTUAL TABLE abstracts_fts USING fts5(
-    abstract, category, tags,
-    content='abstracts', content_rowid='id'
-);
+```yaml
+models:
+  main:              # 提取模型（本地，自由更换）
+    provider: lmstudio
+    model: qwen3.6-35b-a3b-mlx
+  compress:          # 压缩模型（云端，自由更换）
+    provider: deepseek
+    model: deepseek-v4-flash
+  embed:             # 向量模型
+    provider: lmstudio
+    model: qwen3-embedding-4b-mxfp8
+    dimension: 2560
 ```
 
-完整建表语句见 `Memory/schema/v2.sql`。
+生命周期参数集中在 `Engine/config/lifecycle.yaml`。详见 [DESIGN.md](ReadMe/DESIGN.md)。
 
 ---
 
