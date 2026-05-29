@@ -47,7 +47,7 @@ def profile_vault(profile: str = None) -> Path:
     if PROFILE_BASE is None:
         raise RuntimeError(
             "profile_vault_base 未配置，请在 Memory/config.yaml 中设置 paths.profile_vault_base\n"
-            "示例: profile_vault_base: ~/.hermes/profiles"
+            "示例: profile_vault_base: /Users/baymax/.hermes/profiles"
         )
     p = profile or CURRENT_PROFILE
     return PROFILE_BASE / p / "memory-vault"
@@ -417,6 +417,15 @@ def write_global_l0(
                     "UPDATE abstracts SET tags=?, storage_path=? WHERE id=?",
                     (fields.get("tags", ""), l1_path, existing["id"]),
                 )
+            else:
+                # soft_dedup 认为"merge"但 LIKE 未命中 → 降级为 INSERT
+                cur = gdb.execute(
+                    "INSERT INTO abstracts (source_type, abstract, category, tags, storage_path, version, status) "
+                    "VALUES ('memory', ?, ?, ?, ?, ?, 'active')",
+                    (abstract, fields.get("category", ""), fields.get("tags", ""), l1_path,
+                     old_version + 1 if topic else 1),
+                )
+                global_ids.append(cur.lastrowid)
             continue
         cur = gdb.execute(
             "INSERT INTO abstracts (source_type, abstract, category, tags, storage_path, version, status) "
@@ -509,7 +518,9 @@ def write_memory_links(abstract_ids: list[int], global_ids: list[int], decisions
     """写入语义关联到 memory_links。解析"关联:" + tag 重叠 + 传递闭包推理。"""
     if not abstract_ids and not global_ids:
         return
-    link_ids = global_ids or abstract_ids
+    # 全局库操作用 global_ids，profile 库操作用 abstract_ids
+    gids = global_ids or abstract_ids
+    pids = abstract_ids or global_ids
     
     import re as _re
     p = profile or CURRENT_PROFILE
@@ -522,11 +533,11 @@ def write_memory_links(abstract_ids: list[int], global_ids: list[int], decisions
             if m:
                 linked_slugs.append(m.group(1).strip())
     
-    # 获取新注入的 tags
+    # 获取新注入的 tags（从 profile 库读 tags）
     new_tags_str = ""
     try:
         db = get_db(p)
-        first = db.execute("SELECT tags FROM abstracts WHERE id=? LIMIT 1", (link_ids[0],)).fetchone()
+        first = db.execute("SELECT tags FROM abstracts WHERE id=? LIMIT 1", (abstract_ids[0],)).fetchone()
         if first:
             new_tags_str = first["tags"] or ""
         db.close()
@@ -537,14 +548,14 @@ def write_memory_links(abstract_ids: list[int], global_ids: list[int], decisions
     try:
         gdb = get_global_db()
         
-        # 1. 解析"关联:"行写入链接
+        # 1. 解析"关联:"行写入链接（全局库用 global IDs）
         for slug in linked_slugs:
             rows = gdb.execute(
                 "SELECT id FROM abstracts WHERE abstract LIKE ? OR tags LIKE ? LIMIT 3",
                 (f"%{slug[:20]}%", f"%{slug[:20]}%")
             ).fetchall()
             for r in rows:
-                for aid in link_ids:
+                for aid in gids:
                     gdb.execute(
                         "INSERT OR IGNORE INTO memory_links (source_id, target_abstract_id, relation) "
                         "VALUES (?, ?, 'related')",
@@ -553,17 +564,17 @@ def write_memory_links(abstract_ids: list[int], global_ids: list[int], decisions
         
         # 2. tag 重叠关联（无需 qwen 输出"关联:"）
         if new_tags:
-            placeholders = ",".join("?" * len(link_ids))
+            placeholders = ",".join("?" * len(gids))
             existing = gdb.execute(
                 f"SELECT id, tags FROM abstracts WHERE source_type='memory' AND tags != '' AND id NOT IN ({placeholders})",
-                link_ids
+                gids
             ).fetchall()
             for row in existing:
                 old_tags = set(t.strip() for t in (row["tags"] or "").split(",") if t.strip())
                 if old_tags and new_tags:
                     overlap = len(new_tags & old_tags) / min(len(new_tags), len(old_tags))
                     if overlap >= 0.5:
-                        for aid in link_ids:
+                        for aid in gids:
                             gdb.execute(
                                 "INSERT OR IGNORE INTO memory_links (source_id, target_abstract_id, relation) "
                                 "VALUES (?, ?, 'tag_overlap')",
@@ -571,19 +582,18 @@ def write_memory_links(abstract_ids: list[int], global_ids: list[int], decisions
                             )
         
         # 3. 传递闭包推理（2 跳以内）
-        _infer_transitive_links(gdb, link_ids)
+        _infer_transitive_links(gdb, gids)
         
         gdb.commit()
         gdb.close()
     except Exception as e:
         logger.debug("write_memory_links 全局跳过: %s", e)
 
-    # ── 同步写入 profile 库 ──
+    # ── 同步写入 profile 库（用 abstract_ids） ──
     if not abstract_ids:
         return
     try:
         pdb = get_db(p)
-        p_link_ids = abstract_ids
 
         # 1. 关联 slug
         for slug in linked_slugs:
@@ -592,7 +602,7 @@ def write_memory_links(abstract_ids: list[int], global_ids: list[int], decisions
                 (f"%{slug[:20]}%", f"%{slug[:20]}%")
             ).fetchall()
             for r in rows:
-                for aid in p_link_ids:
+                for aid in pids:
                     pdb.execute(
                         "INSERT OR IGNORE INTO memory_links (source_id, target_abstract_id, relation) "
                         "VALUES (?, ?, 'related')",
@@ -601,17 +611,17 @@ def write_memory_links(abstract_ids: list[int], global_ids: list[int], decisions
 
         # 2. tag 重叠
         if new_tags:
-            p_placeholders = ",".join("?" * len(p_link_ids))
+            p_placeholders = ",".join("?" * len(pids))
             existing = pdb.execute(
                 f"SELECT id, tags FROM abstracts WHERE source_type='memory' AND tags != '' AND id NOT IN ({p_placeholders})",
-                p_link_ids
+                pids
             ).fetchall()
             for row in existing:
                 old_tags = set(t.strip() for t in (row["tags"] or "").split(",") if t.strip())
                 if old_tags and new_tags:
                     overlap = len(new_tags & old_tags) / min(len(new_tags), len(old_tags))
                     if overlap >= 0.5:
-                        for aid in p_link_ids:
+                        for aid in pids:
                             pdb.execute(
                                 "INSERT OR IGNORE INTO memory_links (source_id, target_abstract_id, relation) "
                                 "VALUES (?, ?, 'tag_overlap')",
@@ -619,7 +629,7 @@ def write_memory_links(abstract_ids: list[int], global_ids: list[int], decisions
                             )
 
         # 3. 传递闭包
-        _infer_transitive_links(pdb, p_link_ids)
+        _infer_transitive_links(pdb, pids)
 
         pdb.commit()
         pdb.close()
@@ -1108,13 +1118,13 @@ def main():
                 gdb = get_global_db()
                 gdb.execute("UPDATE abstracts SET session_count = session_count + 1 "
                             "WHERE source_type='memory' AND session_count >= 0")
-                if abstract_ids:
-                    ids_placeholder = ",".join("?" * len(abstract_ids))
+                if global_ids:
+                    ids_placeholder = ",".join("?" * len(global_ids))
                     gdb.execute(
                         f"UPDATE abstracts SET weight = MIN(weight + 5, 100), "
                         f"last_accessed_at = datetime('now','localtime') "
                         f"WHERE id IN ({ids_placeholder}) AND source_type='memory'",
-                        abstract_ids
+                        global_ids
                     )
                 gdb.execute(
                     "UPDATE abstracts SET weight = MAX(weight - 2, 5) "

@@ -66,7 +66,7 @@ def resolve_provider(config_key: str = "main") -> dict:
         env = _load_env()
         env_key = env.get("DEEPSEEK_API_KEY", "")
         return {
-            "provider": key_config.get("provider") or main.get("provider", "lmstudio"),
+            "provider": main.get("provider", "lmstudio"),
             "model": model,
             "base_url": base_url,
             "api_key": api_key or os.environ.get("DEEPSEEK_API_KEY", "") or env_key,

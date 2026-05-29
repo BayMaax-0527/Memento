@@ -8,7 +8,7 @@ hooks/remember_doc.py — v2 文档知识注入入口
   ③ 调 remember.py --source doc
 
 用法:
-    cd ~/workspace/Memento/Engine && python3 hooks/remember.py --source doc --file <文档路径>
+    cd ~/workspace/memory-vault && python3 hooks/remember_doc.py <文件路径>
 """
 
 import subprocess, sys, shutil
@@ -28,7 +28,7 @@ def save_to_raw(src_path: Path) -> Path:
         stem = dst.stem
         suffix = dst.suffix
         dst = KNOWLEDGE_RAW / f"{stem}_{stamp}{suffix}"
-    shutil.move(str(src_path), str(dst))
+    shutil.copy2(str(src_path), str(dst))
     print(f"  📁 raw → {dst}", file=sys.stderr)
     return dst
 
