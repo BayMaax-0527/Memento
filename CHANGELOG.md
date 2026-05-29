@@ -1,5 +1,17 @@
 # Changelog
 
+## v4.2 (2026-05-29)
+
+### 🐛 Bug 修复
+
+- **`client.py`: provider 继承 main 时返回 `"main"` 字符串而非实际 provider 名** — 当 compress/embed 配置 `provider: main` 继承主配置时，返回的 provider 字段值为 `"main"` 而非实际后端名（如 `"deepseek"`），导致错误日志信息不准确
+- **`remember.py`: 权重更新误用 profile ID 操作全局库** — `write_global_l0()` 后的权重更新使用 `abstract_ids`（profile 库 ID）更新全局库（`gdb`），本应使用 `global_ids`。导致完全无关的记忆权重被错误调整，搜索结果排序偏移
+- **`remember.py`: `write_memory_links` 全局库查询误用 profile ID** — `link_ids = global_ids or abstract_ids` 在 `global_ids` 为空时退化为 profile IDs，全局库的 tag 重叠关联和传递闭包推理基于错误 ID 运行
+- **`remember.py`: `soft_dedup` 与 LIKE 判定不一致导致 `global_ids` 长度错位** — `soft_dedup` 返回 `"merge"` 后，LIKE 前缀匹配（`abstract[:20] + "%"`）因算法不同可能未命中，`continue` 跳过且不 append ID，导致 `global_ids` 比 `l0_lines` 短，后续 `zip()` 产生错误配对
+- **`remember_doc.py`: `shutil.move` 移走源文件导致知识注入 100% 失败** — `save_to_raw()` 用 `shutil.move` 将文件移至 `Knowledge/raw/`，后续 `remember.py --source doc --file <原路径>` 因文件不存在报错退出。改为 `shutil.copy2`，保留原件
+
+---
+
 ## v4.1 (2026-05-28)
 
 ### 🔧 改进
